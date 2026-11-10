@@ -1,61 +1,67 @@
 # art3m1s-core
 
-Art3m1s 的多引擎视觉小说运行时。core 通过独立 adapter 接入 Artemis/Art3m1s、
-RFVP 和 KRKR/Kirikiri，共享日志、媒体、GPU 渲染和版本化 C ABI；adapter 输出引擎无关
-的 `DrawList` 或最终合成帧，render 后端只消费统一渲染契约。生产宿主是 Flutter 项目
-[Art3m1s](https://github.com/Alphaly2K/art3m1s)。
+A multi-engine visual novel runtime written in Rust. `art3m1s-core` connects to Artemis/Art3m1s, RFVP, and KRKR/Kirikiri through modular adapters, sharing unified logging, media/FFmpeg pipelines, GPU rendering backends, and a versioned C ABI. Each engine adapter produces an engine-agnostic `DrawList` or composited frame, allowing the rendering backend to consume a single unified rendering contract.
 
-Artemis 仍是当前功能最完整、默认启用的引擎路径。RFVP 是独立的可选 adapter。KRKR
-adapter 处于早期接入阶段，提供 ABI、探针和跨平台嵌入式上游构建路径，不应把
-`native-bootstrap` 当作可运行游戏后端。Artemis 路径不创建窗口；KRKR 当前由上游 C++
-runtime 管理其内部 application/window 生命周期，但最终显示和真实音频输出仍固定由
-Host 负责。
+The primary production host is the Flutter application [Art3m1s](https://github.com/Alphaly2K/art3m1s).
 
-当前版本为 **0.4.0**，对应生产宿主 Art3m1s **1.3.0**。
+Artemis remains the most feature-complete and default engine pipeline. RFVP is an independent optional adapter. The KRKR adapter is in an early integration stage providing ABI definitions, compatibility probes, and cross-platform embedded upstream build paths. The Artemis pipeline does not manage native windows; KRKR currently manages internal application/window lifecycles via upstream C++ runtime, while final surface presentation and audio output remain the responsibility of the Host.
 
-## 功能
+Original creator: **[Alphaly2K](https://github.com/Alphaly2K)**  
+License: **Mozilla Public License 2.0 (MPL-2.0)**
 
-- 多引擎 runtime 边界：`Art3m1sApiV1`、`Art3m1sRfvpApiV1` 和可选的
-  `Art3m1sKrkrApiV1` 各自版本化，不互相复用引擎对象语义
-- ASB/AST/IET 脚本解释与 Lua 桥接（桌面/Android 用 Lua 5.1，iOS 用 Luau）
-- 图层树、变换、混合、转场、动画与命中测试；Artemis HLSL shader 子集
-- 共享 GPU 后端：Apple 默认原生 Metal（可选 MetalFX Spatial），GL/ANGLE 为参考路径，
-  Vulkan 为实验路径；RFVP/KRKR adapter 不直接依赖具体图形 API
-- E-Mote PSB 立绘（内置后端 `crates/art3m1s-emote`）
-- 场景文本、Ruby、逐字显示、backlog、宿主文本翻译注入与覆盖字体
-- PFS 归档（含分卷、pf8 加密）与目录资源、编号/系统存档
-- 鼠标、键盘、触摸、拖动的脚本事件派发
-- 无 Dart 反向回调的 host-events 队列：日志、媒体和 UI 命令由 Host 批量取出
-- 可选 runtime 媒体解码、宿主音频命令和共享纹理/外部表面路径
+---
 
-## 仓库结构
+## Features
+
+- **Multi-Engine Runtime Boundaries**: Independent, versioned ABI facades (`Art3m1sApiV1`, `Art3m1sRfvpApiV1`, and optional `Art3m1sKrkrApiV1`) preventing cross-engine state pollution.
+- **Script Engines & Lua Bridge**: Full interpretation of ASB, AST, and IET scripts with Lua 5.1 (Desktop & Android) and Luau (iOS).
+- **Scene Composition & Shaders**: Complete scenegraph layer trees, affine transforms, blend modes, transitions, tweens, and pixel-accurate alpha hit testing (`clickablethreshold`). Full Artemis HLSL shader subset support.
+- **Shared GPU Backends**:
+  - Apple: Native Metal (with optional MetalFX Spatial upscaling).
+  - Android & Desktop: OpenGL ES / ANGLE as reference path.
+  - Experimental: Vulkan backend.
+- **E-Mote 2D Animated Character System** (`crates/art3m1s-emote`):
+  - Native playback of PSB animated character portraits at full 60 FPS.
+  - Multi-texture format support: compressed **DXT5** and uncompressed 32-bit **RGBA8 / LeRGBA8** (with automatic BGRA-to-RGBA channel correction for natural skin tones).
+  - Fast-path direct GPU texture upload for ultra-high-resolution textures (4096×4096).
+  - Complete Lua runtime API support (`progress`, `isTimelinePlaying`, timeline queries, variable read/write).
+- **Typography & Text Layout**: Text layout engine with Ruby characters, typewriter reveal animations, backlog tracking, host translation injection, and custom font overrides.
+- **Archive & File System**: PFS archives (single and multi-volume, encrypted pf8) and raw unpacked directory resources, with structured save data management.
+- **Input Pipeline**: Event dispatch for mouse pointer, keyboard, touch, right-click, hover, and drag.
+- **Decoupled Host Event Queue**: Lock-free, unidirectional event queue for logs, media events, and UI commands without reverse Dart FFI callbacks.
+- **Integrated Media Decoding**: Static FFmpeg (8.1+) software decoding for video cutscenes, fullscreen opening movies, and alpha-blended video effects (OGV/Theora) with skip/seek synchronization.
+
+---
+
+## Repository Structure
 
 ```text
 src/
-  ffi/                Art3m1s、RFVP、KRKR 版本化 C ABI facade
-  runtime/            Artemis 运行时、输入、媒体和帧推进
-  compositor/         图层树、转场、动画和 DrawList 构建
-  host/               事件、资源、媒体和日志边界
-  render_pipeline/    共享渲染契约的 core 侧组合层
-  profiler/           性能采样和快照
+  ffi/                Versioned C ABI facades for Art3m1s, RFVP, and KRKR
+  runtime/            Artemis runtime state, input dispatch, media, and frame stepping
+  compositor/         Scenegraph layer tree, transitions, animations, and DrawList builder
+  host/               Host event, resource, media, and logging boundaries
+  render_pipeline/    Core-side orchestration of the shared rendering contract
+  profiler/           Performance metrics and frame profiling
 crates/
-  art3m1s-log/        独立日志 crate
-  art3m1s-media/      独立媒体/FFmpeg 边界
-  art3m1s-render/     共享 DrawList、GPU backend、surface、shader 和 post-process
-  art3m1s-rfvp/       RFVP adapter 与 host-runtime
-  art3m1s-siglus/     Siglus VM 到 art3m1s-render 的兼容接口（实验）
-  art3m1s-krkr/       Kirikiri/KRKR adapter、版本化 ABI 和原生 smoke host
-  asb-interpreter/    ASB/AST/IET 解释器与 Lua 桥
-  art3m1s-emote/      内置 E-Mote 后端
-  pf8/                PFS 归档库（vendored 自 sakarie9/pfs-rs，MIT；
-                      本地扩展见 crates/pf8/VENDORED.md）
-  pfs-upk-rust/       PFS 的 C ABI 封装（产物即 libpfs_upk）
-tools/game-probes/    兼容性探针
-tests/                集成与兼容性测试
-doc/                  宿主接入指南与 FFI 参考
+  art3m1s-log/        Independent logging crate
+  art3m1s-media/      Media and FFmpeg integration boundaries
+  art3m1s-render/     Shared DrawList, GPU backends (GL, Metal, Vulkan), surfaces, shaders, post-processing
+  art3m1s-rfvp/       RFVP engine adapter and host runtime
+  art3m1s-siglus/     Experimental Siglus VM adapter for art3m1s-render
+  art3m1s-krkr/       Kirikiri/KRKR adapter, versioned ABI, and smoke test host
+  asb-interpreter/    ASB/AST/IET script interpreter and Lua bridge
+  art3m1s-emote/      Built-in E-Mote PSB parser, atlas, and animation runtime
+  pf8/                PFS archive library (vendored from sakarie9/pfs-rs under MIT; see crates/pf8/VENDORED.md)
+  pfs-upk-rust/       C ABI wrapper for PFS archive operations (produces libpfs_upk)
+tools/game-probes/    Automated game compatibility probes
+tests/                Integration and regression test suites
+doc/                  Host integration guides and FFI reference manuals
 ```
 
-## 构建与测试
+---
+
+## Building & Testing
 
 ```bash
 cargo fmt --check
@@ -63,21 +69,21 @@ cargo fmt --check
 cargo build --release
 ```
 
-默认 features 包含 GL、原生 Metal、实验 Vulkan、`rfvp-engine` 和
-`krkr-engine`，不包含 `ffmpeg`。未提供上游 source/build 目录时，KRKR 仅回退到
-不可运行的 bootstrap shim。只用无 GPU 的核心模块时
-`cargo build --no-default-features`。需要商业游戏资源的兼容性测试默认不执行，见
-[tests/README.md](tests/README.md)。
-
-KRKR 的当前构建层次如下：
+Default features include GL, native Metal, experimental Vulkan, `rfvp-engine`, and `krkr-engine`. FFmpeg is optional. When upstream source/build directories are not provided, KRKR falls back to a non-runnable bootstrap shim. To build minimal core modules without GPU backends, use:
 
 ```bash
-# core ABI/bootstrap 检查；native shim 返回 unsupported，不能运行游戏
+cargo build --no-default-features
+```
+
+### KRKR Build Levels
+
+```bash
+# Core ABI / bootstrap check (native shim returns unsupported; cannot run games)
 cargo test --locked --offline \
   --manifest-path crates/art3m1s-krkr/Cargo.toml \
   --features native-bootstrap
 
-# macOS 上游真实 runtime smoke；需要已准备的 KRKRSDL3 source/build checkout
+# macOS native upstream runtime smoke test (requires prebuilt KRKRSDL3 checkout)
 VCPKG_ROOT=/path/to/vcpkg \
 KRKRSDL3_SOURCE_DIR=/path/to/krkrsdl3 \
 KRKRSDL3_BUILD_DIR=/path/to/krkrsdl3_build \
@@ -86,46 +92,35 @@ cargo build --manifest-path crates/art3m1s-krkr/Cargo.toml \
   --bin krkr_upstream_smoke
 ```
 
-上游 revision、CMake 前置条件和 smoke 运行参数见
-[crates/art3m1s-krkr/README.md](crates/art3m1s-krkr/README.md) 与
-[crates/art3m1s-krkr/UPSTREAM.md](crates/art3m1s-krkr/UPSTREAM.md)。`native-upstream-smoke`
-用于单机无窗口探针。生产宿主的 macOS、Windows、Linux、Android 和原生 SwiftUI iOS
-构建均须显式提供 `KRKRSDL3_SOURCE_DIR`、`KRKRSDL3_BUILD_DIR`、`VCPKG_ROOT` 并使用
-`--krkr`，以防误把 bootstrap 当成真实引擎。任意 Windows `.dll`/`.tpm` 插件和真实
-扬声器输出仍未接入；各平台需分别进行实际构建和游戏验证。
+See [crates/art3m1s-krkr/README.md](crates/art3m1s-krkr/README.md) and [crates/art3m1s-krkr/UPSTREAM.md](crates/art3m1s-krkr/UPSTREAM.md) for details on upstream revisions, CMake prerequisites, and smoke test parameters.
 
-## 宿主接入
+---
 
-线程、生命周期、帧循环、资源边界和 KRKR 接入约定见
-[doc/HOST_INTEGRATION.md](doc/HOST_INTEGRATION.md)；三个入口的完整 C ABI 声明与协议见
-[doc/FFI_REFERENCE.md](doc/FFI_REFERENCE.md)。
-运行时 HLSL 的 ABI、资源 binding、编译流程和限制见
-[doc/SHADER_ABI.md](doc/SHADER_ABI.md)。
-SceneColor、render/output size 与线性 post-process 设计见
-[doc/POST_PROCESS.md](doc/POST_PROCESS.md)。
+## Host Integration
 
-## 状态与限制
+- **Threading & Lifecycles**: Frame loop, resource boundaries, and KRKR conventions are documented in [doc/HOST_INTEGRATION.md](doc/HOST_INTEGRATION.md).
+- **C ABI Reference**: Complete FFI declarations and data structures are in [doc/FFI_REFERENCE.md](doc/FFI_REFERENCE.md).
+- **Shader Pipeline**: Runtime HLSL ABI, resource bindings, compilation flow, and constraints are detailed in [doc/SHADER_ABI.md](doc/SHADER_ABI.md).
+- **Post-Processing**: Linear post-processing pipeline and render target layouts are in [doc/POST_PROCESS.md](doc/POST_PROCESS.md).
 
-- 原生 Vulkan 仍为实验后端；Android 生产路径继续使用 ANGLE / OpenGL ES。
-- MetalFX Spatial 需要 macOS 13+ / iOS 16+ 且 GPU 支持，否则回退 native render。
-- HLSL 支持面向已测试游戏实际使用的 shader 形态，不是通用 DirectX shader 编译器。
-- E-Mote 针对已测试游戏的 PSB 变体；部分私有 easing 与外部纹理格式未覆盖。
-- HTTP、native call、浏览器、振动等宿主服务需宿主实现回调后方可用。
-- KRKR 当前以 C++ runtime 和 XP3/TJS/KAG 为边界，不把 TJS2/KAG 移植到 Rust；
-  save root/真实扬声器/平台 surface 和插件桥仍以 adapter 的实际能力为准。
-- `art3m1s_krkr_native_get_api_v1` 只属于 native shim，Host 只能调用 core 导出的
-  `art3m1s_krkr_get_api_v1`。
+---
 
-版本详情见 [CHANGELOG.md](CHANGELOG.md)。
+## Current Status & Known Constraints
 
-## 许可证
+- Native Vulkan is experimental; Android production targets continue to use ANGLE / OpenGL ES.
+- MetalFX Spatial requires macOS 13+ / iOS 16+ with compatible GPU hardware; falls back to standard rendering on unsupported platforms.
+- Artemis HLSL compiler targets shader patterns observed in tested visual novels, rather than being an arbitrary full-spec DirectX compiler.
+- E-Mote support covers tested PSB structures, DXT5, and RGBA8 formats; proprietary easing curves or custom engine extensions may require case-by-case adapters.
+- External host services such as HTTP networking, native platform calls, browser opening, and haptics rely on host callbacks.
 
-[MPL-2.0](LICENSE)：文件级 copyleft——修改本仓库已覆盖的文件需以 MPL-2.0
-提供对应源码；由其他许可文件组成的 Larger Work（宿主应用、闭源分发版）
-可保持各自许可。例外：`crates/pf8` 保留上游
-[MIT 许可](crates/pf8/LICENSE)。
+---
 
-`crates/art3m1s-krkr` 的上游 KRKRSDL3 代码不属于 MPL-2.0；其 pin、许可证和附加条款见
-[THIRD_PARTY_NOTICES.md](crates/art3m1s-krkr/THIRD_PARTY_NOTICES.md)。若分发基于
-KRKRSDL3 修改版的商业游戏移植二进制，必须按其条款公开相应修改源码并保留上游版权和
-许可证文本。
+## Credits & License
+
+Original author and creator: **[Alphaly2K](https://github.com/Alphaly2K)**
+
+Licensed under the **[Mozilla Public License 2.0 (MPL-2.0)](LICENSE)**:
+- File-level copyleft: Any modifications made to existing covered files in this repository must remain open under MPL-2.0.
+- Larger Works: Host applications, user interfaces, or distribution packages combining other licenses may retain their respective licenses.
+- **Exception**: `crates/pf8` retains its upstream **[MIT License](crates/pf8/LICENSE)** (by sakarie9).
+- Upstream KRKRSDL3 code in `crates/art3m1s-krkr` is governed by its original upstream licenses; see [THIRD_PARTY_NOTICES.md](crates/art3m1s-krkr/THIRD_PARTY_NOTICES.md).
